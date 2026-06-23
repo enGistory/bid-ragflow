@@ -48,8 +48,16 @@ load_env_file
 export http_proxy=""; export https_proxy=""; export no_proxy=""; export HTTP_PROXY=""; export HTTPS_PROXY=""; export NO_PROXY=""
 export PYTHONPATH=$(pwd)
 
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
-JEMALLOC_PATH=$(pkg-config --variable=libdir jemalloc)/libjemalloc.so
+JEMALLOC_PATH=""
+if [[ "$(uname -s)" == "Linux" ]]; then
+    export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu/
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists jemalloc; then
+        JEMALLOC_LIBDIR="$(pkg-config --variable=libdir jemalloc)"
+        if [[ -n "$JEMALLOC_LIBDIR" && -f "$JEMALLOC_LIBDIR/libjemalloc.so" ]]; then
+            JEMALLOC_PATH="$JEMALLOC_LIBDIR/libjemalloc.so"
+        fi
+    fi
+fi
 
 PY=python3
 
@@ -88,13 +96,24 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # Function to execute task_executor with retry logic
+run_task_executor_once() {
+    local task_id=$1
+    if [[ -n "$JEMALLOC_PATH" ]]; then
+        LD_PRELOAD="$JEMALLOC_PATH" "$PY" rag/svr/task_executor.py -i "$task_id"
+    else
+        "$PY" rag/svr/task_executor.py -i "$task_id"
+    fi
+}
+
 task_exe(){
     local task_id=$1
     local retry_count=0
     while ! $STOP && [ $retry_count -lt $MAX_RETRIES ]; do
         echo "Starting task_executor.py for task $task_id (Attempt $((retry_count+1)))"
-        LD_PRELOAD=$JEMALLOC_PATH $PY rag/svr/task_executor.py -i "$task_id"
+        set +e
+        run_task_executor_once "$task_id"
         EXIT_CODE=$?
+        set -e
         if [ $EXIT_CODE -eq 0 ]; then
             echo "task_executor.py for task $task_id exited successfully."
             break
@@ -123,8 +142,10 @@ run_server(){
     local retry_count=0
     while ! $STOP && [ $retry_count -lt $MAX_RETRIES ]; do
         echo "Starting $server_name (Attempt $((retry_count+1)))"
+        set +e
         "${server_cmd[@]}"
         EXIT_CODE=$?
+        set -e
         if [ $EXIT_CODE -eq 0 ]; then
             echo "$server_name exited successfully."
             break
@@ -153,8 +174,10 @@ run_admin_server(){
     local retry_count=0
     while ! $STOP && [ $retry_count -lt $MAX_RETRIES ]; do
         echo "Starting $server_name (Attempt $((retry_count+1)))"
+        set +e
         "${server_cmd[@]}"
         EXIT_CODE=$?
+        set -e
         if [ $EXIT_CODE -eq 0 ]; then
             echo "$server_name exited successfully."
             break
@@ -175,8 +198,10 @@ run_data_sync(){
     local retry_count=0
     while ! $STOP && [ $retry_count -lt $MAX_RETRIES ]; do
         echo "Starting sync_data_source.py (Attempt $((retry_count+1)))"
+        set +e
         $PY rag/svr/sync_data_source.py
         EXIT_CODE=$?
+        set -e
         if [ $EXIT_CODE -eq 0 ]; then
             echo "sync_data_source.py exited successfully."
             break
