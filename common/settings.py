@@ -409,12 +409,34 @@ def init_settings():
 
 def check_and_install_torch():
     global PARALLEL_DEVICES
+    if os.getenv("DEVICE", "cpu").lower() == "cpu":
+        PARALLEL_DEVICES = 0
+        logging.info("DEVICE=cpu; skipping torch/CUDA detection")
+        return
     try:
         pip_install_torch()
         import torch.cuda
         PARALLEL_DEVICES = torch.cuda.device_count()
         logging.info(f"found {PARALLEL_DEVICES} gpus")
     except Exception:
+        if os.getenv("DEVICE", "cpu").lower() != "cpu":
+            try:
+                import onnxruntime as ort
+                cuda_path = os.environ.get("CUDA_PATH")
+                if hasattr(ort, "preload_dlls"):
+                    ort.preload_dlls(
+                        cuda=True,
+                        cudnn=True,
+                        msvc=True,
+                        directory=os.path.join(cuda_path, "bin") if cuda_path else None,
+                    )
+                if "CUDAExecutionProvider" in ort.get_available_providers():
+                    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+                    PARALLEL_DEVICES = len([d for d in visible_devices.split(",") if d.strip()]) if visible_devices else 1
+                    logging.info(f"found ONNXRuntime CUDAExecutionProvider; using {PARALLEL_DEVICES} gpu(s)")
+                    return
+            except Exception:
+                pass
         logging.info("can't import package 'torch'")
 
 def _parse_model_entry(entry):
@@ -450,4 +472,3 @@ def _resolve_per_model_config(entry_dict, backup_factory, backup_api_key, backup
 def print_rag_settings():
     logging.info(f"MAX_CONTENT_LENGTH: {DOC_MAXIMUM_SIZE}")
     logging.info(f"MAX_FILE_COUNT_PER_USER: {int(os.environ.get('MAX_FILE_NUM_PER_USER', 0))}")
-

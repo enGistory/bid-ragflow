@@ -22,7 +22,6 @@ import os
 from huggingface_hub import snapshot_download
 
 from common.file_utils import get_project_base_directory
-from common.misc_utils import pip_install_torch
 from common import settings
 from .operators import *  # noqa: F403
 from . import operators
@@ -83,15 +82,25 @@ def load_model(model_dir, nm, device_id: int | None = None):
             model_file_path))
 
     def cuda_is_available():
-        try:
-            pip_install_torch()
-            import torch
-            target_id = 0 if device_id is None else device_id
-            if torch.cuda.is_available() and torch.cuda.device_count() > target_id:
-                return True
-        except Exception:
+        if os.getenv("DEVICE", "cpu").lower() == "cpu":
             return False
-        return False
+        if "CUDAExecutionProvider" not in ort.get_available_providers():
+            logging.warning("CUDAExecutionProvider is not available in onnxruntime; falling back to CPU")
+            return False
+        try:
+            cuda_path = os.environ.get("CUDA_PATH")
+            if hasattr(ort, "preload_dlls"):
+                if cuda_path:
+                    ort.preload_dlls(cuda=True, cudnn=True, msvc=True, directory=os.path.join(cuda_path, "bin"))
+                else:
+                    ort.preload_dlls()
+        except Exception as e:
+            logging.warning(f"Failed to preload ONNXRuntime CUDA DLLs: {e}")
+        target_id = 0 if device_id is None else device_id
+        visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+        if visible_devices:
+            return target_id < len([d for d in visible_devices.split(",") if d.strip()])
+        return target_id == 0
 
     options = ort.SessionOptions()
     options.enable_cpu_mem_arena = False

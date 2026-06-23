@@ -235,6 +235,44 @@ run_mysql_migrations() {
     echo "Model provider table migrations completed."
 }
 
+download_hf_file() {
+    local repo_id=$1
+    local filename=$2
+    local hf_base="${HF_ENDPOINT:-https://huggingface.co}"
+    local dest_dir="rag/res/deepdoc"
+    local dest="${dest_dir}/${filename}"
+    local partial="${dest}.download"
+    local url="${hf_base}/${repo_id}/resolve/main/${filename}"
+
+    if [[ -f "$dest" ]]; then
+        echo "Found $dest"
+        return
+    fi
+
+    echo "Downloading ${repo_id}/${filename}..."
+    curl -L --fail --retry 5 --retry-delay 2 --retry-all-errors \
+        --connect-timeout 30 --speed-limit 1024 --speed-time 120 \
+        -C - -o "$partial" "$url"
+    mv -f "$partial" "$dest"
+}
+
+ensure_deepdoc_resources() {
+    echo "Checking DeepDoc resources in rag/res/deepdoc..."
+    mkdir -p rag/res/deepdoc
+
+    download_hf_file "InfiniFlow/deepdoc" "det.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "rec.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "layout.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "layout.manual.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "layout.paper.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "layout.laws.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "tsr.onnx"
+    download_hf_file "InfiniFlow/deepdoc" "ocr.res"
+    download_hf_file "InfiniFlow/text_concat_xgb_v1.0" "updown_concat_xgb.model"
+
+    echo "DeepDoc resources ok."
+}
+
 prepare_for_go() {
     if [ -d /usr/share/infinity/resource ]; then
         echo "Resource directory already exists. Skipping preparation."
@@ -289,6 +327,10 @@ for arg in "$@"; do
       ;;
   esac
 done
+
+if [[ "$START_RAGFLOW" -eq 1 || "$START_TASK_EXECUTOR" -eq 1 ]]; then
+  ensure_deepdoc_resources
+fi
 
 if [[ "$START_RAGFLOW" -eq 1 ]]; then
   ensure_db_init

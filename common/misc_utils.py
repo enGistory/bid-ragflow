@@ -229,8 +229,16 @@ def once(func):
 
 @once
 def pip_install_torch():
-    device = os.getenv("DEVICE", "cpu")
-    if device=="cpu":
+    device = os.getenv("DEVICE", "cpu").lower()
+    if device == "cpu":
+        return
+    try:
+        import torch  # noqa: F401
+        return
+    except Exception:
+        pass
+    if os.getenv("RAGFLOW_AUTO_INSTALL_TORCH", "0") != "1":
+        logging.info("torch is not installed; skipping automatic install. Set RAGFLOW_AUTO_INSTALL_TORCH=1 to enable it.")
         return
     logging.info("Installing pytorch")
     pkg_names = ["torch>=2.5.0,<3.0.0"]
