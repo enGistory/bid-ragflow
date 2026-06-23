@@ -25,7 +25,7 @@ _REPO = Path(__file__).parents[4]
 
 
 @pytest.fixture
-def markdown_element_extractor(monkeypatch):
+def markdown_parser_module(monkeypatch):
     try:
         import markdown  # noqa: F401
     except ModuleNotFoundError:
@@ -40,7 +40,33 @@ def markdown_element_extractor(monkeypatch):
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod.MarkdownElementExtractor
+    return mod
+
+
+@pytest.fixture
+def markdown_element_extractor(markdown_parser_module):
+    return markdown_parser_module.MarkdownElementExtractor
+
+
+@pytest.fixture
+def ragflow_markdown_parser(markdown_parser_module):
+    return markdown_parser_module.RAGFlowMarkdownParser
+
+
+@pytest.mark.p2
+class TestRAGFlowMarkdownParserTables:
+    def test_html_table_extraction_preserves_rowspan_and_colspan(self, ragflow_markdown_parser):
+        text = 'Before\n<table border="1" onclick="alert(1)"><tr><td colspan=\'2\'>A</td><td rowspan="3">B</td></tr><tr><td>C</td><td>D</td></tr></table>\nAfter'
+
+        remainder, tables = ragflow_markdown_parser().extract_tables_and_remainder(text, separate_tables=False)
+
+        assert len(tables) == 1
+        assert "colspan='2'" in tables[0]
+        assert 'rowspan="3"' in tables[0]
+        assert "onclick" not in tables[0]
+        assert "colspan='2'" in remainder
+        assert 'rowspan="3"' in remainder
+        assert "onclick" not in remainder
 
 
 @pytest.mark.p2

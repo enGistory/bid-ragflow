@@ -71,13 +71,27 @@ class RAGFlowMarkdownParser:
             )
             working_text = replace_tables_with_rendered_html(no_border_table_pattern, tables, render=separate_tables)
 
-        # Replace any TAGS e.g. <table ...> to <table>
+        # Replace table-related tags while preserving structural cell spans.
         TAGS = ["table", "td", "tr", "th", "tbody", "thead", "div"]
-        table_with_attributes_pattern = re.compile(rf"<(?:{'|'.join(TAGS)})[^>]*>", re.IGNORECASE)
+        table_with_attributes_pattern = re.compile(rf"<({'|'.join(TAGS)})([^>]*)>", re.IGNORECASE)
+        cell_span_attr_pattern = re.compile(
+            r"""\s+(colspan|rowspan)\s*=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+)""",
+            re.IGNORECASE,
+        )
 
         def replace_tag(m):
-            tag_name = re.match(r"<(\w+)", m.group()).group(1)
-            return "<{}>".format(tag_name)
+            tag_name = m.group(1).lower()
+            if tag_name not in {"td", "th"}:
+                return "<{}>".format(tag_name)
+
+            kept_attrs = []
+            for attr_match in cell_span_attr_pattern.finditer(m.group(2)):
+                value = attr_match.group(2)
+                normalized_value = value.strip("\"'").strip()
+                if re.fullmatch(r"\d+", normalized_value):
+                    kept_attrs.append("{}={}".format(attr_match.group(1).lower(), value))
+            attrs = (" " + " ".join(kept_attrs)) if kept_attrs else ""
+            return "<{}{}>".format(tag_name, attrs)
 
         working_text = re.sub(table_with_attributes_pattern, replace_tag, working_text)
 
@@ -245,11 +259,7 @@ class MarkdownElementExtractor:
         return merged
 
     def _protected_ranges(self, text):
-        return self._merge_ranges(
-            self._fenced_code_ranges(text)
-            + self._markdown_table_ranges(text)
-            + self._html_table_ranges(text)
-        )
+        return self._merge_ranges(self._fenced_code_ranges(text) + self._markdown_table_ranges(text) + self._html_table_ranges(text))
 
     def _append_delimited_section(self, sections, text, start, end, include_meta):
         part = text[start:end]
@@ -307,6 +317,7 @@ class MarkdownElementExtractor:
         if len(dels) > 0:
             text = "\n".join(self.lines)
             sections = self._extract_delimited_elements(text, dels, include_meta)
+
             # Attach lone header lines to the section that follows them so that
             # "## Title\n" never becomes an isolated chunk when the delimiter
             # splits at every newline.  A header is "lone" when it occupies a
@@ -354,11 +365,13 @@ class MarkdownElementExtractor:
                         if _is_attachable_body(body_content):
                             combined = "\n".join(header_parts) + "\n" + body_content
                             if include_meta:
-                                merged.append({
-                                    **sections[i],
-                                    "content": combined,
-                                    "end_line": sections[j]["end_line"],
-                                })
+                                merged.append(
+                                    {
+                                        **sections[i],
+                                        "content": combined,
+                                        "end_line": sections[j]["end_line"],
+                                    }
+                                )
                             else:
                                 merged.append(combined)
                             merged_header_count += len(header_parts)
