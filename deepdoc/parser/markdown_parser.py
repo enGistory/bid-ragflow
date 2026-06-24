@@ -136,6 +136,28 @@ class RAGFlowMarkdownParser:
 
         return working_text, tables
 
+    @staticmethod
+    def _normalize_non_table_text(text):
+        text = re.sub(r"<!--.*?-->", "", text or "", flags=re.DOTALL)
+        text = re.sub(r"&(?:nbsp|#160|#x0*a0);", "", text, flags=re.IGNORECASE)
+        text = text.replace("\ufeff", "").replace("\u00a0", "").replace("\u200b", "")
+        text = re.sub(r"<(?:br|hr)\s*/?>", "", text, flags=re.IGNORECASE)
+
+        empty_container_pattern = re.compile(
+            r"<(html|body|div|section|article|main|p|span)\b[^>]*>\s*</\1>",
+            re.IGNORECASE,
+        )
+        previous = None
+        while previous != text:
+            previous = text
+            text = empty_container_pattern.sub("", text)
+
+        return re.sub(r"\s+", "", text)
+
+    def is_table_only_markdown(self, markdown_text):
+        remainder, tables = self.extract_tables_and_remainder(markdown_text, separate_tables=True)
+        return bool(tables) and not self._normalize_non_table_text(remainder)
+
 
 class MarkdownElementExtractor:
     def __init__(self, markdown_content):

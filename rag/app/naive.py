@@ -66,21 +66,21 @@ from rag.nlp import (
 def _is_short_header(text, max_tokens=50):
     """
     Check if text is a short markdown header.
-    
+
     Args:
         text: The text to check
         max_tokens: Maximum tokens for a header to be considered "short"
-    
+
     Returns:
         bool: True if text is a short markdown header, False otherwise
     """
     if not text or not text.strip():
         return False
-    
+
     # Check if it matches markdown header pattern: 1-6 # followed by space
     if not re.match(r"^#{1,6}\s+", text.strip()):
         return False
-    
+
     # Check if token count is below threshold
     return num_tokens_from_string(text) < max_tokens
 
@@ -788,12 +788,13 @@ class Markdown(MarkdownParser):
             with open(filename, "r") as f:
                 txt = f.read()
 
-        remainder, tables = self.extract_tables_and_remainder(f"{txt}\n", separate_tables=separate_tables)
+        markdown_text = f"{txt}\n"
+        remainder, tables = self.extract_tables_and_remainder(markdown_text, separate_tables=separate_tables)
+        skip_text_sections = bool(tables) and self.is_table_only_markdown(markdown_text)
         # To eliminate duplicate tables in chunking result, uncomment code below and set separate_tables to True in line 410.
         # extractor = MarkdownElementExtractor(remainder)
-        extractor = MarkdownElementExtractor(txt)
         image_refs = self.extract_image_urls_with_lines(txt)
-        element_sections = extractor.extract_elements(delimiter, include_meta=True)
+        element_sections = [] if skip_text_sections else MarkdownElementExtractor(txt).extract_elements(delimiter, include_meta=True)
 
         sections = []
         section_images = []
@@ -1114,7 +1115,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
 
     st = timer()
     overlapped_percent = normalize_overlapped_percent(parser_config.get("overlapped_percent", 0))
-    
+
     if is_markdown:
         merged_chunks = []
         merged_images = []

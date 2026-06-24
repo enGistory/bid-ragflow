@@ -68,6 +68,27 @@ class TestRAGFlowMarkdownParserTables:
         assert 'rowspan="3"' in remainder
         assert "onclick" not in remainder
 
+    def test_detects_markdown_with_only_tables_after_table_removal(self, ragflow_markdown_parser):
+        text = """
+<div class="sheet">
+<table border="1"><tr><td colspan="2">A</td></tr><tr><td>B</td><td>C</td></tr></table>
+</div>
+<table><tr><td>D</td></tr></table>
+"""
+
+        assert ragflow_markdown_parser().is_table_only_markdown(text)
+
+    def test_markdown_with_short_prose_is_not_table_only(self, ragflow_markdown_parser):
+        text = """
+# 清单
+<table><tr><td>A</td></tr></table>
+"""
+
+        assert not ragflow_markdown_parser().is_table_only_markdown(text)
+
+    def test_markdown_without_tables_is_not_table_only(self, ragflow_markdown_parser):
+        assert not ragflow_markdown_parser().is_table_only_markdown("# 标题\n正文")
+
 
 @pytest.mark.p2
 class TestMarkdownElementExtractorFences:
