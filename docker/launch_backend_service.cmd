@@ -193,6 +193,10 @@ goto :parse_args
 :setup_env
 call :load_env_file
 
+if /I "%RAGFLOW_FORCE_CPU_FALLBACK%"=="1" (
+    set "DEVICE=cpu"
+)
+
 set "http_proxy="
 set "https_proxy="
 set "no_proxy="
@@ -361,13 +365,18 @@ if errorlevel 1 exit /b 1
 echo DeepDoc resources ok.
 if /I "%DEVICE%"=="gpu" (
     call :ensure_gpu_runtime
-    if errorlevel 1 exit /b 1
+    if errorlevel 1 (
+        if /I "%RAGFLOW_REQUIRE_GPU%"=="1" exit /b 1
+        echo Warning: GPU runtime check failed; continuing with CPU fallback. Set RAGFLOW_REQUIRE_GPU=1 to require GPU startup. 1>&2
+        set "RAGFLOW_FORCE_CPU_FALLBACK=1"
+        set "DEVICE=cpu"
+    )
 )
 exit /b 0
 
 :ensure_gpu_runtime
 echo Checking ONNXRuntime CUDA provider...
-"%PY%" -c "import os, onnxruntime as ort; cuda_path=os.environ.get('CUDA_PATH'); print('onnxruntime', ort.__version__, ort.get_available_providers()); assert 'CUDAExecutionProvider' in ort.get_available_providers(), 'CUDAExecutionProvider is not available'; ort.preload_dlls(cuda=True, cudnn=True, msvc=True, directory=os.path.join(cuda_path, 'bin') if cuda_path else None) if hasattr(ort, 'preload_dlls') else None; sess=ort.InferenceSession(os.path.join('rag','res','deepdoc','det.onnx'), providers=['CUDAExecutionProvider']); print('CUDA session providers:', sess.get_providers())"
+"%PY%" -c "import os, sys, onnxruntime as ort; providers=ort.get_available_providers(); print('onnxruntime', ort.__version__, providers); sys.exit(2) if 'CUDAExecutionProvider' not in providers else None; cuda_path=os.environ.get('CUDA_PATH'); ort.preload_dlls(cuda=True, cudnn=True, msvc=True, directory=os.path.join(cuda_path, 'bin') if cuda_path else None) if hasattr(ort, 'preload_dlls') else None; sess=ort.InferenceSession(os.path.join('rag','res','deepdoc','det.onnx'), providers=['CUDAExecutionProvider']); print('CUDA session providers:', sess.get_providers())"
 if errorlevel 1 (
     echo GPU runtime check failed. Ensure CUDA_PATH points to a CUDA 12.x toolkit with cuDNN 9 DLLs in %%CUDA_PATH%%\bin. 1>&2
     exit /b 1

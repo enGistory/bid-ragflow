@@ -241,3 +241,18 @@ bin/*
 # Local agent tooling state (per-developer; not for commit)
 .omc/
 .marscode/
+
+.opencode/
+
+.kimi/
+
+.codex/
+
+docs/plans/
+
+.github/skills/
+
+.github/prompts/
+
+openspec/
+ragflow_backup/
