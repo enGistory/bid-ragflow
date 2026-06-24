@@ -68,6 +68,48 @@ class TestRAGFlowMarkdownParserTables:
         assert 'rowspan="3"' in remainder
         assert "onclick" not in remainder
 
+    def test_html_table_extraction_removes_empty_rows_outside_rowspan(self, ragflow_markdown_parser):
+        text = """
+Before
+<table border="1">
+<tr><td colspan="2">A</td></tr>
+<tr><td></td><td colspan="2"></td></tr>
+<tr><td> </td><td colspan="2">&nbsp;</td></tr>
+<tr><td>B</td></tr>
+<tr><td><img src="x.png"></td></tr>
+</table>
+After
+"""
+
+        remainder, tables = ragflow_markdown_parser().extract_tables_and_remainder(text, separate_tables=False)
+
+        assert len(tables) == 1
+        assert tables[0].count("<tr>") == 3
+        assert '<td colspan="2">A</td>' in tables[0]
+        assert '<td></td><td colspan="2"></td>' not in tables[0]
+        assert "<td>B</td>" in tables[0]
+        assert '<img src="x.png">' in tables[0]
+        assert "&nbsp;" not in tables[0]
+        assert remainder.count("<tr>") == 3
+
+    def test_html_table_extraction_keeps_rowspan_placeholder_rows_and_removes_trailing_empty_row(self, ragflow_markdown_parser):
+        text = """
+<table>
+<tr><td rowspan="3">A</td><td>First</td></tr>
+<tr></tr>
+<tr></tr>
+<tr><td>B</td><td>Next</td></tr>
+<tr></tr>
+</table>
+"""
+
+        _, tables = ragflow_markdown_parser().extract_tables_and_remainder(text, separate_tables=False)
+
+        assert len(tables) == 1
+        assert 'rowspan="3"' in tables[0]
+        assert tables[0].count("<tr>") == 4
+        assert tables[0].count("<tr></tr>") == 2
+
     def test_detects_markdown_with_only_tables_after_table_removal(self, ragflow_markdown_parser):
         text = """
 <div class="sheet">

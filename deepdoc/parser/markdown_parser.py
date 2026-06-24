@@ -15,6 +15,7 @@
 #  limitations under the License.
 #
 
+import html
 import logging
 import re
 
@@ -25,6 +26,45 @@ class RAGFlowMarkdownParser:
     def __init__(self, chunk_token_num=128):
         self.chunk_token_num = int(chunk_token_num)
 
+    @staticmethod
+    def _table_row_has_content(row_html):
+        if re.search(r"<(?:img|svg|canvas|video|audio|object|embed)\b", row_html or "", re.IGNORECASE):
+            return True
+
+        text = re.sub(r"<!--.*?-->", "", row_html or "", flags=re.DOTALL)
+        text = re.sub(r"<[^>]+>", "", text)
+        text = html.unescape(text)
+        text = text.replace("\ufeff", "").replace("\u00a0", "").replace("\u200b", "")
+        return bool(re.sub(r"\s+", "", text))
+
+    @staticmethod
+    def _rowspan_tail(row_html):
+        spans = [int(match.group(2)) for match in re.finditer(r"\browspan\s*=\s*([\"']?)(\d+)\1", row_html or "", re.IGNORECASE)]
+        return max(0, max(spans, default=1) - 1)
+
+    def _remove_empty_table_rows_outside_rowspan(self, table_html):
+        row_pattern = re.compile(r"<tr\b[^>]*>.*?</tr>", re.IGNORECASE | re.DOTALL)
+        parts = []
+        last_end = 0
+        rowspan_tail = 0
+
+        for match in row_pattern.finditer(table_html or ""):
+            parts.append(table_html[last_end : match.start()])
+            row_html = match.group(0)
+            protected_by_rowspan = rowspan_tail > 0
+            has_content = self._table_row_has_content(row_html)
+            if has_content or protected_by_rowspan:
+                parts.append(row_html)
+            row_tail = self._rowspan_tail(row_html) if has_content else 0
+            rowspan_tail = max(rowspan_tail - 1, row_tail)
+            last_end = match.end()
+
+        parts.append((table_html or "")[last_end:])
+        return "".join(parts)
+
+    def _prepare_table_html(self, table_html):
+        return self._remove_empty_table_rows_outside_rowspan(table_html)
+
     def extract_tables_and_remainder(self, markdown_text, separate_tables=True):
         tables = []
         working_text = markdown_text
@@ -33,7 +73,7 @@ class RAGFlowMarkdownParser:
             new_text = ""
             last_end = 0
             for match in pattern.finditer(working_text):
-                raw_table = match.group()
+                raw_table = self._prepare_table_html(match.group())
                 table_list.append(raw_table)
                 if separate_tables:
                     # Skip this match (i.e., remove it)
@@ -122,7 +162,7 @@ class RAGFlowMarkdownParser:
                 new_text = ""
                 last_end = 0
                 for match in html_table_pattern.finditer(working_text):
-                    raw_table = match.group()
+                    raw_table = self._prepare_table_html(match.group())
                     tables.append(raw_table)
                     if separate_tables:
                         new_text += working_text[last_end : match.start()] + "\n\n"
